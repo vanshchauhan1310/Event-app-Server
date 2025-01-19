@@ -4,18 +4,13 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import cors from 'cors';
 
-
 const app = express();
 const port = 3001;
 
-
 // In-memory storage (replace with database in production)
 const otpStorage = new Map();
-const verifiedUsers = new Map();
+const users = new Map();
 
-// CORS middleware
-
-// Add cors middleware before your routes
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -24,7 +19,6 @@ app.use(cors({
 
 app.use(express.json());
 
-// Nodemailer configuration
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     secure: true,
@@ -34,7 +28,6 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Verify email configuration
 transporter.verify((error, success) => {
     if (error) {
         console.log('Transporter verification error:', error);
@@ -43,17 +36,14 @@ transporter.verify((error, success) => {
     }
 });
 
-// Generate OTP
 function generateOTP() {
     return crypto.randomInt(100000, 999999).toString();
 }
 
-// Test route
 app.get('/', (req, res) => {
     res.send('Password Reset Server is running!');
 });
 
-// Register user (for testing purposes)
 app.post('/register', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -76,8 +66,6 @@ app.post('/register', async (req, res) => {
     }
 });
 
-
-// Request password reset (send OTP)
 app.post('/send-otp', async (req, res) => {
     try {
         const { email } = req.body;
@@ -85,7 +73,6 @@ app.post('/send-otp', async (req, res) => {
         if (!email) {
             return res.status(400).json({ error: 'Email is required' });
         }
-
 
         const otp = generateOTP();
         otpStorage.set(email, { 
@@ -118,7 +105,6 @@ app.post('/send-otp', async (req, res) => {
     }
 });
 
-// Verify OTP
 app.post('/verify-otp', (req, res) => {
     const { email, otp } = req.body;
     
@@ -141,40 +127,40 @@ app.post('/verify-otp', (req, res) => {
         return res.status(400).json({ error: 'Invalid OTP' });
     }
 
-    verifiedUsers.set(email, { 
-        verifiedAt: Date.now(),
-        expiresAt: Date.now() + 600000 // 10 minutes to reset password
-    });
-    otpStorage.delete(email);
-    
+    // Keep the OTP in storage for password reset
     res.json({ message: 'OTP verified successfully' });
 });
 
-// Reset password
 app.post('/reset-password', async (req, res) => {
     try {
-        const { email, newPassword } = req.body;
+        const { email, newPassword, otp } = req.body;
         
-        if (!email || !newPassword) {
-            return res.status(400).json({ error: 'Email and new password are required' });
+        if (!email || !newPassword || !otp) {
+            return res.status(400).json({ error: 'Email, new password, and OTP are required' });
         }
 
-        const verificationData = verifiedUsers.get(email);
+        const storedData = otpStorage.get(email);
         
-        if (!verificationData) {
-            return res.status(400).json({ error: 'Please verify your OTP first' });
+        if (!storedData) {
+            return res.status(400).json({ error: 'No OTP found for this email' });
         }
 
-        if (Date.now() > verificationData.expiresAt) {
-            verifiedUsers.delete(email);
-            return res.status(400).json({ error: 'Verification expired. Please request a new OTP' });
+        if (storedData.otp !== otp) {
+            return res.status(400).json({ error: 'Invalid OTP' });
+        }
+
+        if (Date.now() - storedData.createdAt > 600000) { // 10 minutes expiry
+            otpStorage.delete(email);
+            return res.status(400).json({ error: 'OTP has expired' });
         }
 
         // Hash new password and update user data
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         users.set(email, { password: hashedPassword });
         
-        verifiedUsers.delete(email);
+        // Clear the OTP after successful password reset
+        otpStorage.delete(email);
+        
         res.json({ message: 'Password reset successfully' });
     } catch (error) {
         console.error('Password reset error:', error);
@@ -185,7 +171,6 @@ app.post('/reset-password', async (req, res) => {
     }
 });
 
-// Start server
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
