@@ -2,27 +2,27 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import cors from 'cors';
+
 
 const app = express();
-const port = 3000;
+const port = 3001;
 
-app.use(express.json());
 
 // In-memory storage (replace with database in production)
 const otpStorage = new Map();
 const verifiedUsers = new Map();
-const users = new Map(); // Simulated user database
 
 // CORS middleware
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-    next();
-});
+
+// Add cors middleware before your routes
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
 
 // Nodemailer configuration
 const transporter = nodemailer.createTransport({
@@ -76,6 +76,7 @@ app.post('/register', async (req, res) => {
     }
 });
 
+
 // Request password reset (send OTP)
 app.post('/send-otp', async (req, res) => {
     try {
@@ -85,9 +86,6 @@ app.post('/send-otp', async (req, res) => {
             return res.status(400).json({ error: 'Email is required' });
         }
 
-        if (!users.has(email)) {
-            return res.status(400).json({ error: 'User not found' });
-        }
 
         const otp = generateOTP();
         otpStorage.set(email, { 
