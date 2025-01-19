@@ -7,84 +7,108 @@ const port = 3000;
 
 app.use(express.json());
 
-// In-memory storage for OTPs (replace with a database in production)
+// In-memory storage for OTPs
 const otpStorage = new Map();
+
+// Generate OTP function
+function generateOTP() {
+    return crypto.randomInt(100000, 999999).toString();
+}
 
 // Nodemailer transporter
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  auth: {
-    user: 'vanshchauhan1310@gmail.com',
-    pass: 'pzgy befk lhxp hkuu'
-  }
+    service: 'gmail',
+    secure: true,
+    auth: {
+        user: 'vanshchauhan1310@gmail.com',
+        pass: 'pzgy befk lhxp hkuu'
+    }
 });
 
-// Generate OTP
-function generateOTP() {
-  return crypto.randomInt(100000, 999999).toString();
-}
+// Add CORS middleware
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
 
-app.get('/' ,(req,res) => {
-res.send("Hello World");
-})
+// Test route
+app.get('/', (req, res) => {
+    res.send('Server is running!');
+});
 
-
-// Send OTP
+// Send OTP route
 app.post('/send-otp', async (req, res) => {
-  const { email } = req.body;
+    try {
+        const { email } = req.body;
+        
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
 
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
-  }
+        const otp = generateOTP();
+        otpStorage.set(email, { otp, createdAt: Date.now() });
 
-  const otp = generateOTP();
-  otpStorage.set(email, { otp, createdAt: Date.now() });
+        const mailOptions = {
+            from: 'vanshchauhan1310@gmail.com',
+            to: email,
+            subject: 'Your OTP for Password Reset',
+            text: `Your OTP is ${otp}. It will expire in 10 minutes.`,
+            html: `<p>Your OTP is <strong>${otp}</strong>. It will expire in 10 minutes.</p>`
+        };
 
-  const mailOptions = {
-    from: 'vanshchauhan1310@gmail.com',
-    to: email,
-    subject: 'Your OTP for Password Reset',
-    text: `Your OTP is ${otp}. It will expire in 10 minutes.`
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    res.json({ message: 'OTP sent successfully' });
-  } catch (error) {
-    console.error('Error sending email:', error);
-    res.status(500).json({ error: 'Failed to send OTP' });
-  }
+        const info = await transporter.sendMail(mailOptions);
+        console.log('Email sent successfully:', info.response);
+        res.json({ message: 'OTP sent successfully' });
+    } catch (error) {
+        console.error('Detailed error:', error);
+        res.status(500).json({ 
+            error: 'Failed to send OTP',
+            details: error.message 
+        });
+    }
 });
 
-// Verify OTP
+// Verify OTP route
 app.post('/verify-otp', (req, res) => {
-  const { email, otp } = req.body;
+    const { email, otp } = req.body;
+    
+    if (!email || !otp) {
+        return res.status(400).json({ error: 'Email and OTP are required' });
+    }
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: 'Email and OTP are required' });
-  }
+    const storedData = otpStorage.get(email);
+    
+    if (!storedData) {
+        return res.status(400).json({ error: 'No OTP found for this email' });
+    }
 
-  const storedOTP = otpStorage.get(email);
+    if (Date.now() - storedData.createdAt > 600000) { // 10 minutes expiry
+        otpStorage.delete(email);
+        return res.status(400).json({ error: 'OTP has expired' });
+    }
 
-  if (!storedOTP) {
-    return res.status(400).json({ error: 'No OTP found for this email' });
-  }
+    if (storedData.otp !== otp) {
+        return res.status(400).json({ error: 'Invalid OTP' });
+    }
 
-  if (Date.now() - storedOTP.createdAt > 600000) { // 10 minutes expiration
     otpStorage.delete(email);
-    return res.status(400).json({ error: 'OTP has expired' });
-  }
+    res.json({ message: 'OTP verified successfully' });
+});
 
-  if (storedOTP.otp !== otp) {
-    return res.status(400).json({ error: 'Invalid OTP' });
-  }
-
-  otpStorage.delete(email);
-  res.json({ message: 'OTP verified successfully' });
+// Verify email configuration
+transporter.verify((error, success) => {
+    if (error) {
+        console.log('Transporter verification error:', error);
+    } else {
+        console.log('Server is ready to take messages');
+    }
 });
 
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+    console.log(`Server running at http://localhost:${port}`);
 });
-
