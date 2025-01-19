@@ -1,15 +1,13 @@
 import express from 'express';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
-import bcrypt from 'bcrypt';
 import cors from 'cors';
 
 const app = express();
 const port = 3001;
 
-// In-memory storage (replace with database in production)
+// In-memory storage for OTPs
 const otpStorage = new Map();
-const users = new Map();
 
 app.use(cors({
     origin: '*',
@@ -42,28 +40,6 @@ function generateOTP() {
 
 app.get('/', (req, res) => {
     res.send('Password Reset Server is running!');
-});
-
-app.post('/register', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
-        }
-
-        if (users.has(email)) {
-            return res.status(400).json({ error: 'User already exists' });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        users.set(email, { password: hashedPassword });
-
-        res.json({ message: 'User registered successfully' });
-    } catch (error) {
-        console.error('Registration error:', error);
-        res.status(500).json({ error: 'Registration failed', details: error.message });
-    }
 });
 
 app.post('/send-otp', async (req, res) => {
@@ -127,48 +103,18 @@ app.post('/verify-otp', (req, res) => {
         return res.status(400).json({ error: 'Invalid OTP' });
     }
 
-    // Keep the OTP in storage for password reset
     res.json({ message: 'OTP verified successfully' });
 });
 
-app.post('/reset-password', async (req, res) => {
-    try {
-        const { email, newPassword, otp } = req.body;
-        
-        if (!email || !newPassword || !otp) {
-            return res.status(400).json({ error: 'Email, new password, and OTP are required' });
-        }
-
-        const storedData = otpStorage.get(email);
-        
-        if (!storedData) {
-            return res.status(400).json({ error: 'No OTP found for this email' });
-        }
-
-        if (storedData.otp !== otp) {
-            return res.status(400).json({ error: 'Invalid OTP' });
-        }
-
-        if (Date.now() - storedData.createdAt > 600000) { // 10 minutes expiry
-            otpStorage.delete(email);
-            return res.status(400).json({ error: 'OTP has expired' });
-        }
-
-        // Hash new password and update user data
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        users.set(email, { password: hashedPassword });
-        
-        // Clear the OTP after successful password reset
-        otpStorage.delete(email);
-        
-        res.json({ message: 'Password reset successfully' });
-    } catch (error) {
-        console.error('Password reset error:', error);
-        res.status(500).json({ 
-            error: 'Failed to reset password',
-            details: error.message 
-        });
+app.post('/clear-otp', (req, res) => {
+    const { email } = req.body;
+    
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
     }
+
+    otpStorage.delete(email);
+    res.json({ message: 'OTP cleared successfully' });
 });
 
 app.listen(port, () => {
